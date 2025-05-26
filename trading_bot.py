@@ -50,30 +50,45 @@ def run_trading_bot():
     market_feed = FakeMarketSocket()
     remaining_shares = TOTAL_SHARES_TO_BUY
 
-    while remaining_shares > 0:
-        try:
-            price_update = market_feed.receive_price_update()
-            price = price_update["price"]
-            shares_available = price_update["shares"]
+    try:
+        price_update = market_feed.receive_price_update()
+        price = price_update["price"]
+        shares_available = price_update["shares"]
+        print(f"[MARKET] Price: {price}, Available Shares: {shares_available}")
 
-            print(f"[MARKET] Price: {price}, Available Shares: {shares_available}")
-
-            if is_price_within_range(price):
+        while remaining_shares > 0:
+            while is_price_within_range(price) and remaining_shares > 0:
+                # The minimum will handle the case for when shares_available > remaining_shares
                 shares_to_buy = min(shares_available, remaining_shares)
                 success = place_buy_order(price, shares_to_buy)
                 if success:
                     remaining_shares -= shares_to_buy
                     print(f"[STATUS] Remaining shares to buy: {remaining_shares}")
-            else:
-                print("Price is outside the acceptable range. Skipping.")
+                else:
+                    print(f"[ERROR] Order at ${price} failed after retries.")
 
-        except ConnectionError as err:
-            print(f"[ERROR] {err}")
-            market_feed.reconnect()
+                # Get the next price
+                if remaining_shares > 0:
+                    price_update = market_feed.receive_price_update()
+                    price = price_update["price"]
+                    shares_available = price_update["shares"]
+                    print(f"[MARKET] Price: {price}, Available Shares: {shares_available}")
 
-        except Exception as e:
-            print(f"[UNEXPECTED ERROR] {e}")
-            time.sleep(1)
+            if remaining_shares > 0:
+                print("Price went out of range. Waiting for next valid price...")
+                while not is_price_within_range(price): # Exit this loop whenever a valid price is found
+                    price_update = market_feed.receive_price_update()
+                    price = price_update["price"]
+                    shares_available = price_update["shares"]
+                    print(f"[MARKET] Price: {price}, Available Shares: {shares_available}")
+
+    except ConnectionError as err:
+        print(f"[ERROR] {err}")
+        market_feed.reconnect()
+
+    except Exception as e:
+        print(f"[UNEXPECTED ERROR] {e}")
+        time.sleep(1)
 
     print("All shares successfully purchased!")
 
